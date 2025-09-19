@@ -1,0 +1,41 @@
+# docker-compose.yml - для локальной разработки
+version: '3.8'
+
+services:
+  tender-analyzer:
+    build: .
+    ports:
+      - "8501:8501"  # Streamlit
+      - "8000:8000"  # FastAPI (в будущем)
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - DEBUG=true
+      - DATABASE_URL=sqlite:///./data/tender_analyzer.db
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    
+  # PostgreSQL для production (закомментирован для начала)
+  # postgres:
+  #   image: postgres:15
+  #   environment:
+  #     POSTGRES_DB: tender_analyzer
+  #     POSTGRES_USER: user
+  #     POSTGRES_PASSWORD: password
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+
+volumes:
+  redis_data:
+  # postgres_data:
