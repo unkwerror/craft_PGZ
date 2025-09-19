@@ -1,46 +1,52 @@
-import sys, os
+# ui/web_app.py
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import sys
+from pathlib import Path
+
+# Добавляем корень проекта (где лежит папка core) в sys.path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 import streamlit as st
-import pandas as pd
 from core.search_parser import ZakupkiSearchParser
+from core.tender_parser import ZakupkiTenderParser
+from core.services.excel_service import ExcelService
 
-st.set_page_config(page_title="Закупки РФ", layout="wide")
+st.set_page_config(page_title="Госзакупки Парсер", layout="wide")
 
-st.title("🔎 Поиск закупок")
+st.title("🔎 Парсер госзакупок")
 
-# Поле для запроса
-query = st.text_input("Введите ключевое слово для поиска:", "бумага")
+# 1. Ввод запроса
+query = st.text_input("Введите запрос для поиска", "шкафы металлические")
+limit = st.slider("Максимум заказов", 5, 50, 10)
 
-if st.button("Искать"):
+if st.button("Найти заказы"):
     with ZakupkiSearchParser(headless=True) as parser:
-        with st.spinner("Открываем сайт..."):
-            parser.open_site()
+        st.write("Открываю сайт...")
+        parser.open_site()
+        parser.set_filters()
+        parser.search_query(query)
+        results = parser.parse_orders(limit=limit)
 
-        with st.spinner("Применяем фильтры..."):
-            parser.set_filters()
-
-        with st.spinner("Выполняем поиск..."):
-            parser.search_query(query)
-
-        with st.spinner("Парсим результаты..."):
-            orders = parser.parse_orders(limit=30)
-
-    if orders:
-        st.success(f"Найдено {len(orders)} закупок")
-        df = pd.DataFrame(orders)
-        st.dataframe(df, use_container_width=True)
-
-        # Чекбоксы для выбора
-        selected = st.multiselect(
-            "Выберите закупки для детального анализа",
-            options=[o["number"] for o in orders],
-            format_func=lambda x: f"{x} | {next(o['title'] for o in orders if o['number']==x)}"
-        )
-
-        if selected:
-            st.info(f"Вы выбрали {len(selected)} закупок")
-            st.write([o for o in orders if o["number"] in selected])
+    if not results:
+        st.warning("Ничего не найдено")
     else:
-        st.warning("⚠️ Закупки не найдены")
+        st.success(f"Найдено {len(results)} заказов")
+        selected_numbers = []
+        for r in results:
+            if st.checkbox(f"{r.number} | {r.title} | {r.price} | {r.customer}", key=r.number):
+                selected_numbers.append(r.number)
+
+        if selected_numbers:
+            st.write("Выбраны заказы:", selected_numbers)
+
+            if st.button("Спарсить выбранные"):
+                excel_service = ExcelService()
+                for num in selected_numbers:
+                    with ZakupkiTenderParser(headless=True) as tparser:
+                        st.write(f"📄 Парсинг {num} ...")
+                        tparser.load_page(num)
+                        tender = tparser.parse_tender_card()
+                        tparser.save_html(num)
+                        tparser.download_all_documents(num, tender.documents)
+                        path = excel_service.save_tender(tender)
+                        st.success(f"✅ Сохранено: {path}")
